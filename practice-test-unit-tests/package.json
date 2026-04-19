@@ -1,0 +1,13 @@
+{
+  "name": "practice-test-unit-tests",
+  "version": "1.0.0",
+  "description": "Báo cáo Unit Test cho chức năng Luyện đề & Kiểm tra trực tuyến",
+  "scripts": {
+    "test": "echo \"Run java tests in MaiHieu\"",
+    "export-report": "node export-report.js",
+    "inject-comments": "node inject-comments.js"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0"
+  }
+}
