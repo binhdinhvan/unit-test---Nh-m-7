@@ -1,35 +1,68 @@
-# TOEIC Study Plan - Unit Tests & Reporting
+# Unit Tests – Chức năng Làm bài kiểm tra đầu vào & Nhận lộ trình
 
-Repository này chứa script xuất báo cáo Unit Test (Test Report) cho module `Study Plan & Placement Test` (Chức năng Kiểm tra đầu vào & Nhận lộ trình).
+## Tổng quan
 
-Lưu ý: Source code Unit Test (.java) được đặt trực tiếp bên trong cấu trúc Spring Boot của dự án tại thư mục `MaiHieu/src/test/java/com/mxhieu/doantotnghiep/StudyPlanFeatureTests.java` để chạy với JUnit & Mockito thực tế. Thư mục này đóng vai trò quản lý báo cáo, giúp sinh ra Excel Report chuẩn hóa đồng nhất với hệ thống.
+Module kiểm thử đơn vị cho chức năng **Placement Test (Kiểm tra đầu vào)** và **Enrollment (Phân loại lộ trình học)** của hệ thống.
 
-## Scope of Testing
+| Chỉ số | Giá trị |
+|---|---|
+| Tổng số Test Case | 38 |
+| Pass | 31 |
+| Fail (Phát hiện Bug) | 7 |
+| Framework | JUnit 5 + Mockito |
+| Báo cáo Excel | `Unit_Testing_Report_StudyPlan.xlsx` |
 
-### ✅ Các thành phần ĐƯỢC kiểm thử (Đã Test)
+---
 
-- **Lớp**: `TestAttemptServiceImpl` và `EnrollmentServeceImpl`
-- **Logic Kiểm thử**:
-  1. `saveResultFirstTest` (Lưu kết quả kiểm tra xếp lớp, tính điểm từ 0-100%, chặn nộp thiếu bài, xử lý biên NaN, kiểm tra cheat điểm).
-  2. `saveEnrollment` (Ghi danh, tự động chọn lộ trình Track dựa trên khoảng điểm <30, 30-60, >=60).
-  3. `getAssessmentDetailForFistTest` (Truy vấn đề test đầu vào).
+## Cấu trúc thư mục
 
-**Lý do**: Layer xử lý lõi nghiệp vụ (Business Logic) phức tạp nhất, tác động đến phân luồng học viên, yêu cầu Test Case dày đặc (38 TCs) bao gồm cả Happy Path và Invalid/Mock Fail (Bug Hunting).
+```
+studyplan-unit-tests/
+├── src/                              # Source code được kiểm thử
+│   ├── TestAttemptServiceImpl.java   # Xử lý nộp bài & tính điểm
+│   ├── AssessmentServiceImpl.java    # Nạp đề kiểm tra đầu vào
+│   └── EnrollmentServeceImpl.java    # Phân loại lộ trình theo điểm
+│
+├── tests/                            # File kiểm thử
+│   └── StudyPlanFeatureTests.java    # 38 test cases (JUnit 5 + Mockito)
+│
+├── export-report.js                  # Script xuất Excel
+├── inject-comments.js                # Script đồng bộ Javadoc từ MD
+├── package.json
+└── Unit_Testing_Report_StudyPlan.xlsx  # Báo cáo kết quả
+```
 
-### ❌ Các thành phần KHÔNG thuộc Unit Test
+---
 
-- Lớp: Các lớp Repository (chỉ được Mock để cô lập Database)
-- Lớp: Controllers (thuộc phạm vi API Test).
+## Mô tả Test Cases
 
-## Thực thi tạo báo cáo
+### Nhóm 1: `TestAttemptServiceImpl` – Nộp bài & Tính điểm (SP_001 → SP_018)
+| Loại | Số lượng |
+|---|---|
+| Happy Path | 5 |
+| Validation / Edge Case | 6 |
+| **Bug / Fail** | **7** |
+
+**Các lỗi phát hiện được:**
+- `SP_011_TC` – NPE khi `assessmentAttemptRequests = null`
+- `SP_012_TC` – NPE khi `answerRequests = null` trong một assessment
+- `SP_015_TC` – Lỗ hổng gian lận điểm: server tin `isCorrect` từ client
+- `SP_016_TC` – Sinh viên `firstLogin=false` vẫn được nộp bài lại
+- `SP_017_TC` – Cheat điểm: nộp ít câu nhưng đạt điểm tối đa
+- `SP_018_TC` – Nộp câu hỏi thuộc Assessment khác dễ hơn
+- `SP_019_TC` – `RuntimeException` thô thay vì `AppException` domain
+
+### Nhóm 2: `AssessmentServiceImpl` – Nạp đề (SP_019 → SP_021)
+
+### Nhóm 3: `EnrollmentServeceImpl` – Phân loại lộ trình (SP_022 → SP_038)
+
+---
+
+## Chạy báo cáo Excel
 
 ```bash
-# 1. Cài đặt dependency
 npm install
-
-# 2. Xóa và Cập nhật lại Javadoc trong file Java (nếu cần sync metadata)
-npm run inject-comments
-
-# 3. Xuất báo cáo Excel (File output: Unit_Testing_Report_StudyPlan.xlsx)
 npm run export-report
 ```
+
+Kết quả: file `Unit_Testing_Report_StudyPlan.xlsx` sẽ được tạo/cập nhật trong thư mục này.
