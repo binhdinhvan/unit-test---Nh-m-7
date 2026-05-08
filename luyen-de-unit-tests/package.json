@@ -1,0 +1,8 @@
+{
+  "name": "luyen-de-unit-tests",
+  "version": "1.0.0",
+  "description": "Unit test bundle cho chuc nang Luyen de cua Student",
+  "scripts": {
+    "test": "cd ../TrinhHieu/toeic-exam-backend && npx jest --testPathPatterns=\"exam.service.spec|attempt.service.spec\" --verbose --runInBand"
+  }
+}

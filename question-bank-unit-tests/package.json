@@ -1,0 +1,8 @@
+{
+  "name": "question-bank-unit-tests",
+  "version": "1.0.0",
+  "description": "Unit test bundle cho chuc nang Quan ly ngan hang cau hoi",
+  "scripts": {
+    "test": "cd ../TrinhHieu/toeic-exam-backend && npx jest --testPathPatterns=\"question.service.spec|media-group.service.spec\" --verbose --runInBand"
+  }
+}
