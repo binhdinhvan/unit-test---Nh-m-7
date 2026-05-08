@@ -162,7 +162,9 @@ describe('QuestionService', () => {
       const updateCall = mockRepo.update.mock.calls[0];
       const mediaUpdatePayload = updateCall[2];
       expect(mediaUpdatePayload).toEqual(expect.objectContaining({ AudioUrl: '/new.mp3' }));
-      expect(mediaUpdatePayload).not.toHaveProperty('Skill', undefined);
+      expect(mediaUpdatePayload).not.toHaveProperty('Skill');
+      expect(mediaUpdatePayload).not.toHaveProperty('Type');
+      expect(mediaUpdatePayload).not.toHaveProperty('Section');
     });
 
     it('[TC_14] In cảnh báo khi update câu hỏi đã thi nhiều lần (> 5 lần)', async () => {
@@ -207,7 +209,7 @@ describe('QuestionService', () => {
       mockRepo.getUsageStats.mockResolvedValue(null);
       // Kỳ vọng: HỆ THỐNG PHẢI TỪ CHỐI XÓA khi không rõ trạng thái sử dụng.
       // Test này sẽ FAIL với code hiện tại.
-      await expect(service.deleteQuestion(1, 1)).rejects.toThrow();
+      await expect(service.deleteQuestion(1, 1)).rejects.toThrow('Cannot verify usage stats');
     });
   });
 

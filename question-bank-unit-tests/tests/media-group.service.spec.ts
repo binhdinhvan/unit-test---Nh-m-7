@@ -339,7 +339,13 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      */
     it('[TC_21] LỖI: Chỉ cảnh báo thay vì chặn lưu bài Listening không có AudioUrl', async () => {
       const d = createDto({ Media: { Skill: 'LISTENING', Type: 'CONVERSATION', Section: '3' } } as any);
+      jest.spyOn(console, 'warn').mockImplementation();
+      mRepo.create.mockResolvedValueOnce({ ID: 88 } as any);
+      qRepo.createMultipleForMedia.mockResolvedValueOnce([{ ID: 880 }] as any);
+      mRepo.findById.mockResolvedValueOnce(createMockMedia({ ID: 88 }));
+      mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
       await expect(svc.createMediaGroup(d, 1)).rejects.toThrow('AudioUrl is required');
+      (console.warn as jest.Mock).mockRestore();
     });
 
     /**
@@ -348,6 +354,10 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * LỖI THỰC TẾ: Không có logic trim() và chặn tiêu đề rỗng, dẫn đến hiển thị UI bị lỗi.
      */
     it('[TC_22] LỖI: Chấp nhận lưu tiêu đề nhóm (Title) chỉ chứa khoảng trắng', async () => {
+      mRepo.create.mockResolvedValueOnce({ ID: 89 } as any);
+      qRepo.createMultipleForMedia.mockResolvedValueOnce([{ ID: 890 }] as any);
+      mRepo.findById.mockResolvedValueOnce(createMockMedia({ ID: 89, GroupTitle: '   ' }));
+      mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
       await expect(svc.createMediaGroup(createDto({ Title: '   ' }), 1)).rejects.toThrow('Title cannot be empty');
     });
 
@@ -362,6 +372,10 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
           { Content: 'X', Attribute: 'A', IsCorrect: true },
           { Content: 'Y', Attribute: 'A', IsCorrect: false },
         ] }] } as any);
+      mRepo.create.mockResolvedValueOnce({ ID: 90 } as any);
+      qRepo.createMultipleForMedia.mockResolvedValueOnce([{ ID: 900 }] as any);
+      mRepo.findById.mockResolvedValueOnce(createMockMedia({ ID: 90 }));
+      mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
       await expect(svc.createMediaGroup(d, 1)).rejects.toThrow('Choice attributes must be unique');
     });
 
@@ -372,6 +386,10 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      */
     it('[TC_24] LỖI: Không giới hạn độ dài của tiêu đề nhóm (> 500 ký tự)', async () => {
       const longTitle = 'A'.repeat(505);
+      mRepo.create.mockResolvedValueOnce({ ID: 91 } as any);
+      qRepo.createMultipleForMedia.mockResolvedValueOnce([{ ID: 910 }] as any);
+      mRepo.findById.mockResolvedValueOnce(createMockMedia({ ID: 91, GroupTitle: longTitle }));
+      mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
       await expect(svc.createMediaGroup(createDto({ Title: longTitle }), 1)).rejects.toThrow('Title exceeds maximum length of 500 characters');
     });
 
@@ -382,6 +400,10 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      */
     it('[TC_25] LỖI: Không giới hạn độ dài của mô tả nhóm (> 1000 ký tự)', async () => {
       const longDesc = 'A'.repeat(1005);
+      mRepo.create.mockResolvedValueOnce({ ID: 92 } as any);
+      qRepo.createMultipleForMedia.mockResolvedValueOnce([{ ID: 920 }] as any);
+      mRepo.findById.mockResolvedValueOnce(createMockMedia({ ID: 92, GroupDescription: longDesc }));
+      mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
       await expect(svc.createMediaGroup(createDto({ Description: longDesc }), 1)).rejects.toThrow('Description exceeds maximum length of 1000 characters');
     });
   });

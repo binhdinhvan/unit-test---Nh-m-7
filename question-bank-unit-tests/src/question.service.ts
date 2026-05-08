@@ -1,528 +1,266 @@
-import { QuestionRepository } from '../../infrastructure/repositories/question.repository';
-import {
-  CreateQuestionDto,
-  UpdateQuestionDto,
-  QuestionFilterDto,
-  PaginatedQuestionsResponseDto,
-  QuestionListResponseDto,
-  BulkQuestionOperationDto,
-} from '../dtos/question.dto';
-import { Question } from '../../domain/entities/question.entity';
+import { QuestionService } from '../question.service';
+import { QuestionRepository } from '../../../infrastructure/repositories/question.repository';
+import { CreateQuestionDto } from '../../dtos/question.dto';
 
-/**
- * QuestionService handles business logic for question management
- * 
- * This service is primarily used by administrators and teachers for
- * managing the question bank. It handles:
- * - Creating questions with media and choices
- * - Updating existing questions
- * - Searching and filtering questions
- * - Getting usage statistics
- * - Bulk operations on multiple questions
- * 
- * Questions are the building blocks of exams. A well-organized
- * question bank allows quick creation of new exams by selecting
- * and reusing existing quality questions.
- */
-export class QuestionService {
-  private questionRepository: QuestionRepository;
+// Mock toàn bộ module repository
+jest.mock('../../../infrastructure/repositories/question.repository');
 
-  constructor() {
-    this.questionRepository = new QuestionRepository();
-  }
+describe('QuestionService', () => {
+  let service: QuestionService;
+  let mockRepo: jest.Mocked<QuestionRepository>;
 
-  /**
-   * Create a new question with media and choices
-   * 
-   * This method orchestrates the complex process of creating a complete
-   * question. A TOEIC question consists of three parts:
-   * 1. Media: audio file, image, or text passage
-   * 2. Question: the actual question text or stem
-   * 3. Choices: multiple answer options (typically 4 for TOEIC)
-   * 
-   * All three parts must be created together atomically. If any part
-   * fails, the entire operation is rolled back.
-   * 
-   * Business rules enforced:
-   * - Question must have at least 2 choices (typically 4)
-   * - Exactly one choice must be marked as correct
-   * - Choice attributes must be unique (can't have two "A" choices)
-   * - Media URLs must be valid (or will be once uploaded)
-   * - For listening questions, audio URL is required
-   * 
-   * @param questionData - Complete question data including media and choices
-   * @param userId - ID of user creating the question (admin or teacher)
-   * @returns Created question with all relations
-   * @throws Error if validation fails
-   */
-  async createQuestion(
-    questionData: CreateQuestionDto,
-    userId: number
-  ): Promise<Question> {
-    // Validate choices
-    this.validateChoices(questionData.Choices);
+  // === TEST DATA BUILDERS ===
+  const createMockQuestionDTO = (overrides?: Partial<CreateQuestionDto>): CreateQuestionDto => ({
+    QuestionText: 'Sample question?',
+    Media: {
+      Skill: 'READING',
+      Type: 'GRAMMAR',
+      Section: '5',
+    },
+    Choices: [
+      { Content: 'A', Attribute: 'A', IsCorrect: true },
+      { Content: 'B', Attribute: 'B', IsCorrect: false },
+      { Content: 'C', Attribute: 'C', IsCorrect: false },
+      { Content: 'D', Attribute: 'D', IsCorrect: false },
+    ],
+    ...overrides,
+  });
 
-    // Validate media requirements based on skill type
-    this.validateMediaRequirements(questionData.Media);
+  const createMockQuestionEntity = (overrides?: any) => ({
+    ID: 1,
+    QuestionText: 'Sample question?',
+    UserID: 1,
+    mediaQuestion: {
+      ID: 10,
+      Skill: 'READING',
+      Type: 'GRAMMAR',
+      Section: '5',
+    },
+    choices: [
+      { ID: 101, Content: 'A', Attribute: 'A', IsCorrect: true },
+      { ID: 102, Content: 'B', Attribute: 'B', IsCorrect: false },
+    ],
+    ...overrides,
+  });
 
-    // Create the complete question through repository
-    const question = await this.questionRepository.create(
-      {
-        QuestionText: questionData.QuestionText,
-        UserID: userId,
-      },
-      {
-        Skill: questionData.Media.Skill,
-        Type: questionData.Media.Type,
-        Section: questionData.Media.Section,
-        AudioUrl: questionData.Media.AudioUrl,
-        ImageUrl: questionData.Media.ImageUrl,
-        Scirpt: questionData.Media.Script, // Note: original schema typo
-      },
-      questionData.Choices.map((choice) => ({
-        Content: choice.Content,
-        Attribute: choice.Attribute,
-        IsCorrect: choice.IsCorrect,
-      }))
-    );
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new QuestionService();
+    mockRepo = (service as any).questionRepository as jest.Mocked<QuestionRepository>;
+  });
 
-    return question;
-  }
+  describe('A. Tạo câu hỏi (createQuestion)', () => {
+    it('[TC_01] Tạo câu hỏi thành công với đầy đủ dữ liệu hợp lệ', async () => {
+      const mockDto = createMockQuestionDTO();
+      const mockEntity = createMockQuestionEntity();
+      mockRepo.create.mockResolvedValue(mockEntity as any);
 
-  /**
-   * Get question by ID
-   * 
-   * Retrieves complete question data including media and all choices.
-   * Note: This includes the IsCorrect flag, so this method should only
-   * be called by administrators and teachers, not students.
-   * 
-   * Students see questions through the ExamService which strips out
-   * the correct answer information.
-   * 
-   * @param questionId - ID of question to retrieve
-   * @returns Complete question data
-   * @throws Error if question not found
-   */
-  async getQuestionById(questionId: number): Promise<Question> {
-    const question = await this.questionRepository.findById(questionId);
+      const result = await service.createQuestion(mockDto, 1);
 
-    if (!question) {
-      throw new Error('Question not found');
-    }
-
-    return question;
-  }
-
-  /**
-   * Search and filter questions
-   * 
-   * This is the core method for the question bank UI. It allows
-   * administrators and teachers to search for questions by:
-   * - Skill (Listening or Reading)
-   * - Section (Part 1-7)
-   * - Question type
-   * - Text search (searches in question text and scripts)
-   * 
-   * Results are paginated for performance. With potentially thousands
-   * of questions, loading them all at once would be slow.
-   * 
-   * Use cases:
-   * - Building a new exam by browsing questions
-   * - Finding questions that need updating
-   * - Analyzing question distribution across types
-   * 
-   * @param filters - Search and filter criteria
-   * @returns Paginated list of questions with metadata
-   */
-  async searchQuestions(
-    filters: QuestionFilterDto
-  ): Promise<PaginatedQuestionsResponseDto> {
-    const { questions, total } = await this.questionRepository.findWithFilters({
-      Skill: filters.Skill,
-      Section: filters.Section,
-      Type: filters.Type,
-      SearchText: filters.SearchText,
-      Page: filters.Page,
-      Limit: filters.Limit,
+      expect(mockRepo.create).toHaveBeenCalledTimes(1);
+      expect(result).toEqual(mockEntity);
     });
 
-    // Transform to response DTOs with usage information
-    const questionDtos = await Promise.all(
-      questions.map(async (q) => {
-        const usage = await this.questionRepository.getUsageStats(q.ID);
+    it('[TC_02] Phải ném ra lỗi Validation khi Media không được gửi lên', async () => {
+      const invalidData = createMockQuestionDTO();
+      delete (invalidData as any).Media;
+      await expect(service.createQuestion(invalidData, 1)).rejects.toThrow(/media/i);
+    });
 
-        return this.transformToQuestionListResponse(q, usage?.usedInExams || 0);
-      })
-    );
+    it('[TC_03] Ràng buộc đáp án không được rỗng', async () => {
+      const invalidData = createMockQuestionDTO();
+      invalidData.Choices[0].Content = '   ';
+      await expect(service.createQuestion(invalidData, 1)).rejects.toThrow('All choices must have content');
+    });
 
-    const currentPage = filters.Page || 1;
-    const limit = filters.Limit || 20;
-    const totalPages = Math.ceil(total / limit);
+    it('[TC_04] Ràng buộc hình ảnh cho Part 1', async () => {
+      const invalidData = createMockQuestionDTO();
+      invalidData.Media.Section = '1';
+      invalidData.Media.ImageUrl = undefined;
+      await expect(service.createQuestion(invalidData, 1)).rejects.toThrow('Part 1 questions must have an image');
+    });
 
-    return {
-      Questions: questionDtos,
-      Pagination: {
-        CurrentPage: currentPage,
-        TotalPages: totalPages,
-        TotalQuestions: total,
-        Limit: limit,
-      },
-    };
-  }
+    it('[TC_05] Định dạng URL không hợp lệ', async () => {
+      const invalidData = createMockQuestionDTO();
+      invalidData.Media.Skill = 'LISTENING';
+      invalidData.Media.AudioUrl = 'abc';
+      await expect(service.createQuestion(invalidData, 1)).rejects.toThrow('Invalid audio URL format');
+    });
 
-  /**
-   * Update an existing question
-   * 
-   * Allows updating any aspect of a question: the text, media URLs,
-   * or the answer choices.
-   * 
-   * Important consideration: Updating a question affects all exams
-   * that use it. This is both a feature and a risk:
-   * - Feature: Fix a typo once and it's fixed everywhere
-   * - Risk: Change answer key and it affects all historical attempts
-   * 
-   * In production, you might want to:
-   * - Version questions (keep old version when updating)
-   * - Only allow updates if question hasn't been used in submitted exams
-   * - Require approval for changes to widely-used questions
-   * 
-   * @param questionId - ID of question to update
-   * @param updateData - Fields to update
-   * @param userId - ID of user making the update
-   * @returns Updated question
-   * @throws Error if question not found or validation fails
-   */
-  async updateQuestion(
-    questionId: number,
-    updateData: UpdateQuestionDto,
-    userId: number
-  ): Promise<Question> {
-    const existingQuestion = await this.questionRepository.findById(questionId);
+    it('[TC_06] LỖI: Không giới hạn độ dài Nội dung câu hỏi (> 1000 ký tự)', async () => {
+      const invalidData = createMockQuestionDTO();
+      invalidData.QuestionText = 'A'.repeat(1005);
+      await expect(service.createQuestion(invalidData, 1)).rejects.toThrow('Question text exceeds maximum length');
+    });
+  });
 
-    if (!existingQuestion) {
-      throw new Error('Question not found');
-    }
+  describe('B. Lấy thông tin chi tiết (getQuestionById)', () => {
+    it('[TC_07] Lấy chi tiết câu hỏi thành công', async () => {
+      const mockEntity = createMockQuestionEntity();
+      mockRepo.findById.mockResolvedValue(mockEntity as any);
+      const result = await service.getQuestionById(1);
+      expect(result).toEqual(mockEntity);
+    });
 
-    // Check if this is a widely-used question
-    const usage = await this.questionRepository.getUsageStats(questionId);
-    if (usage && usage.usedInExams > 5) {
-      console.warn(
-        `Warning: Updating question ${questionId} which is used in ${usage.usedInExams} exams`
-      );
-      // In production, might require special permission or create new version
-    }
+    it('[TC_08] Ném lỗi "Question not found" khi ID không tồn tại', async () => {
+      mockRepo.findById.mockResolvedValue(null);
+      await expect(service.getQuestionById(999)).rejects.toThrow('Question not found');
+    });
+  });
 
-    // Validate updated choices if provided
-    if (updateData.Choices) {
-      this.validateChoices(updateData.Choices);
-    }
+  describe('C. Tìm kiếm & Duyệt danh sách (searchQuestions)', () => {
+    it('[TC_09] Lấy danh sách thành công và tính toán phân trang đúng', async () => {
+      const mockEntity = createMockQuestionEntity();
+      mockRepo.findWithFilters.mockResolvedValue({ questions: [mockEntity as any], total: 25 });
+      mockRepo.getUsageStats.mockResolvedValue({ usedInExams: 3, totalAttempts: 10 });
 
-    // Validate updated media if provided
-    if (updateData.Media) {
-      this.validateMediaRequirements(updateData.Media);
-    }
+      const result = await service.searchQuestions({ Page: 2, Limit: 10 });
 
-    const updatedQuestion = await this.questionRepository.update(
-      questionId,
-      updateData.QuestionText ? { QuestionText: updateData.QuestionText } : undefined,
-      updateData.Media
-        ? {
-            Skill: updateData.Media.Skill,
-            Type: updateData.Media.Type,
-            Section: updateData.Media.Section,
-            AudioUrl: updateData.Media.AudioUrl,
-            ImageUrl: updateData.Media.ImageUrl,
-            Scirpt: updateData.Media.Script,
-          }
-        : undefined,
-      updateData.Choices?.map((choice) => ({
-        Content: choice.Content,
-        Attribute: choice.Attribute,
-        IsCorrect: choice.IsCorrect,
-      }))
-    );
+      expect(result.Questions).toHaveLength(1);
+      expect(result.Questions[0].UsageCount).toBe(3);
+      expect(result.Pagination).toEqual({
+        CurrentPage: 2,
+        TotalPages: 3,
+        TotalQuestions: 25,
+        Limit: 10,
+      });
+    });
 
-    if (!updatedQuestion) {
-      throw new Error('Failed to update question');
-    }
+    it('[TC_10] Áp dụng Default Pagination (Page 1, Limit 20) khi không truyền params', async () => {
+      mockRepo.findWithFilters.mockResolvedValue({ questions: [], total: 0 });
+      const result = await service.searchQuestions({});
+      expect(result.Pagination.CurrentPage).toBe(1);
+      expect(result.Pagination.Limit).toBe(20);
+    });
 
-    return updatedQuestion;
-  }
+    it('[TC_11] An toàn với Relation null (Xử lý khi không có mediaQuestion)', async () => {
+      const mockEntity = createMockQuestionEntity();
+      mockEntity.mediaQuestion = null as any;
+      mockRepo.findWithFilters.mockResolvedValue({ questions: [mockEntity as any], total: 1 });
+      mockRepo.getUsageStats.mockResolvedValue({ usedInExams: 0, totalAttempts: 0 });
+      const result = await service.searchQuestions({});
+      expect(result.Questions[0].Media.Skill).toBe('');
+    });
+  });
 
-  /**
-   * Delete a question
-   * 
-   * Removes a question from the system.
-   * 
-   * Important: This also removes the question from any exams that use it.
-   * This could break exams if not careful.
-   * 
-   * Business rules to consider:
-   * - Should we allow deleting questions used in exams?
-   * - Should we only allow deletion if no student attempts exist?
-   * - Should we implement soft delete instead?
-   * 
-   * Current implementation allows deletion but warns if question is
-   * widely used. In production, you'd want stricter controls.
-   * 
-   * @param questionId - ID of question to delete
-   * @param userId - ID of user requesting deletion
-   * @returns True if deleted successfully
-   * @throws Error if question not found or has usage constraints
-   */
-  async deleteQuestion(questionId: number, userId: number): Promise<boolean> {
-    const question = await this.questionRepository.findById(questionId);
+  describe('D. Cập nhật câu hỏi (updateQuestion)', () => {
+    beforeEach(() => {
+      const mockEntity = createMockQuestionEntity();
+      mockRepo.findById.mockResolvedValue(mockEntity as any);
+      mockRepo.getUsageStats.mockResolvedValue({ usedInExams: 0, totalAttempts: 0 });
+      mockRepo.update.mockResolvedValue(mockEntity as any);
+    });
 
-    if (!question) {
-      throw new Error('Question not found');
-    }
+    it('[TC_12] Cập nhật nội dung thành công (Partial Update)', async () => {
+      await service.updateQuestion(1, { QuestionText: 'New text' }, 1);
+      expect(mockRepo.update).toHaveBeenCalledWith(1, { QuestionText: 'New text' }, undefined, undefined);
+    });
 
-    // Check usage
-    const usage = await this.questionRepository.getUsageStats(questionId);
+    it('[TC_13] Update Partial: Chỉ update thuộc tính được truyền lên', async () => {
+      const updateData = { Media: { AudioUrl: '/new.mp3' } } as any;
+      await service.updateQuestion(1, updateData, 1);
+      const updateCall = mockRepo.update.mock.calls[0];
+      const mediaUpdatePayload = updateCall[2];
+      expect(mediaUpdatePayload).toEqual(expect.objectContaining({ AudioUrl: '/new.mp3' }));
+      expect(mediaUpdatePayload).not.toHaveProperty('Skill');
+      expect(mediaUpdatePayload).not.toHaveProperty('Type');
+      expect(mediaUpdatePayload).not.toHaveProperty('Section');
+    });
 
-    if (usage && usage.usedInExams > 0) {
-      throw new Error(
-        `Cannot delete question that is used in ${usage.usedInExams} exam(s). ` +
-        `Remove it from all exams first.`
-      );
-    }
+    it('[TC_14] In cảnh báo khi update câu hỏi đã thi nhiều lần (> 5 lần)', async () => {
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      mockRepo.getUsageStats.mockResolvedValue({ usedInExams: 10, totalAttempts: 0 });
+      await service.updateQuestion(1, { QuestionText: 'Fix typo' }, 1);
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Warning: Updating question'));
+      consoleSpy.mockRestore();
+    });
 
-    return await this.questionRepository.delete(questionId);
-  }
+    it('[TC_15] Báo lỗi khi update ID không tồn tại', async () => {
+      mockRepo.findById.mockResolvedValue(null);
+      await expect(service.updateQuestion(999, {}, 1)).rejects.toThrow('Question not found');
+    });
 
-  /**
-   * Get question usage statistics
-   * 
-   * Provides insights into how a question is being used:
-   * - How many exams include this question
-   * - How many students have attempted it
-   * - What percentage got it correct
-   * - Estimated difficulty based on success rate
-   * 
-   * This information helps evaluate question quality.
-   * Questions with very high or very low success rates might need review.
-   * 
-   * @param questionId - ID of question to analyze
-   * @returns Usage statistics
-   */
-  async getQuestionStatistics(questionId: number): Promise<any> {
-    const question = await this.questionRepository.findById(questionId);
+    it('[TC_16] Báo lỗi khi DB Update trả về null', async () => {
+      mockRepo.update.mockResolvedValue(null);
+      await expect(service.updateQuestion(1, { QuestionText: 'New' }, 1)).rejects.toThrow('Failed to update question');
+    });
+  });
 
-    if (!question) {
-      throw new Error('Question not found');
-    }
+  describe('E. Xóa câu hỏi (deleteQuestion)', () => {
+    beforeEach(() => {
+      const mockEntity = createMockQuestionEntity();
+      mockRepo.findById.mockResolvedValue(mockEntity as any);
+      mockRepo.delete.mockResolvedValue(true);
+    });
 
-    return await this.questionRepository.getUsageStats(questionId);
-  }
+    it('[TC_17] Xóa thành công khi câu hỏi chưa được sử dụng', async () => {
+      mockRepo.getUsageStats.mockResolvedValue({ usedInExams: 0, totalAttempts: 0 });
+      const result = await service.deleteQuestion(1, 1);
+      expect(result).toBe(true);
+      expect(mockRepo.delete).toHaveBeenCalledWith(1);
+    });
 
-  /**
-   * Get questions by section for practice mode
-   * 
-   * When students want to practice specific parts (e.g., "I want to
-   * practice Part 5 - Incomplete Sentences"), this method retrieves
-   * relevant questions.
-   * 
-   * The limit parameter allows controlling practice session length.
-   * For example, a quick practice might use 10 questions while a
-   * thorough review might use 30.
-   * 
-   * @param sections - Array of section numbers to practice
-   * @param limit - Maximum number of questions to return
-   * @returns Questions for the specified sections
-   */
-  async getQuestionsBySection(
-    sections: string[],
-    limit?: number
-  ): Promise<Question[]> {
-    if (!sections || sections.length === 0) {
-      throw new Error('At least one section must be specified');
-    }
+    it('[TC_18] Chặn xóa khi câu hỏi đã nằm trong đề thi', async () => {
+      mockRepo.getUsageStats.mockResolvedValue({ usedInExams: 1, totalAttempts: 0 });
+      await expect(service.deleteQuestion(1, 1)).rejects.toThrow('Cannot delete question that is used');
+    });
 
-    return await this.questionRepository.getQuestionsBySection(sections, limit);
-  }
+    it('[TC_19] LỖI: Bypass bảo vệ khi không lấy được usageStats (Fail-Closed)', async () => {
+      mockRepo.getUsageStats.mockResolvedValue(null);
+      // Kỳ vọng: HỆ THỐNG PHẢI TỪ CHỐI XÓA khi không rõ trạng thái sử dụng.
+      // Test này sẽ FAIL với code hiện tại.
+      await expect(service.deleteQuestion(1, 1)).rejects.toThrow('Cannot verify usage stats');
+    });
+  });
 
-  /**
-   * Perform bulk operations on multiple questions
-   * 
-   * Allows efficient operations on many questions at once:
-   * - Bulk delete: Remove multiple questions (e.g., cleanup)
-   * - Add to exam: Add many questions to an exam at once
-   * 
-   * This is much more efficient than performing operations one by one.
-   * 
-   * @param operation - Operation details and question IDs
-   * @param userId - ID of user performing operation
-   * @returns Result summary of the operation
-   */
-  async performBulkOperation(
-    operation: BulkQuestionOperationDto,
-    userId: number
-  ): Promise<{ success: number; failed: number; errors: string[] }> {
-    const result = {
-      success: 0,
-      failed: 0,
-      errors: [] as string[],
-    };
+  describe('F. Bulk Operations (performBulkOperation)', () => {
+    it('[TC_20] Thực hiện xóa nhiều thành công', async () => {
+      mockRepo.bulkDelete.mockResolvedValue(3);
+      const result = await service.performBulkOperation({ Operation: 'DELETE', QuestionIDs: [1, 2, 3] }, 1);
+      expect(result.success).toBe(3);
+      expect(result.failed).toBe(0);
+    });
 
-    switch (operation.Operation) {
-      case 'DELETE':
-        try {
-          const deletedCount = await this.questionRepository.bulkDelete(
-            operation.QuestionIDs
-          );
-          result.success = deletedCount;
-        } catch (error) {
-          result.failed = operation.QuestionIDs.length;
-          result.errors.push(`Bulk delete failed: ${(error as Error).message}`);
-        }
-        break;
+    it('[TC_21] Quản lý Exception khi bulk delete thất bại', async () => {
+      mockRepo.bulkDelete.mockRejectedValue(new Error('Transaction lock'));
+      const result = await service.performBulkOperation({ Operation: 'DELETE', QuestionIDs: [1, 2] }, 1);
+      expect(result.success).toBe(0);
+      expect(result.failed).toBe(2);
+      expect(result.errors[0]).toContain('Transaction lock');
+    });
 
-      case 'ADD_TO_EXAM':
-        // This would require exam repository access
-        // For now, return not implemented
-        result.failed = operation.QuestionIDs.length;
-        result.errors.push('ADD_TO_EXAM operation should be handled by ExamService');
-        break;
+    it('[TC_22] Trả lỗi khi thao tác không được hỗ trợ', async () => {
+      const result = await service.performBulkOperation({ Operation: 'ADD_TO_EXAM', QuestionIDs: [1] } as any, 1);
+      expect(result.failed).toBe(1);
+      expect(result.errors[0]).toContain('handled by ExamService');
+    });
 
-      default:
-        result.failed = operation.QuestionIDs.length;
-        result.errors.push(`Unknown operation: ${operation.Operation}`);
-    }
+    it('[TC_23] Xử lý lỗi an toàn khi truyền danh sách ID null', async () => {
+      const promise = service.performBulkOperation({ Operation: 'DELETE', QuestionIDs: undefined as any }, 1);
+      await expect(promise).resolves.toEqual(expect.objectContaining({ failed: expect.any(Number) }));
+    });
+  });
 
-    return result;
-  }
+  describe('G. Get Questions By Section (Practice Mode)', () => {
+    it('[TC_24] Lấy danh sách luyện tập thành công', async () => {
+      const mockEntity = createMockQuestionEntity();
+      mockRepo.getQuestionsBySection.mockResolvedValue([mockEntity as any]);
+      const result = await service.getQuestionsBySection(['5', '6'], 10);
+      expect(result).toHaveLength(1);
+    });
 
-  /**
-   * Validate choice configuration
-   * 
-   * Ensures that choices meet business rules:
-   * - At least 2 choices required
-   * - Exactly one choice must be correct
-   * - Choice attributes must be unique
-   * - All choices must have content
-   * 
-   * These validations ensure question integrity.
-   * A question with two correct answers or no correct answer
-   * would be unfair to students.
-   * 
-   * @param choices - Array of choices to validate
-   * @throws Error if validation fails
-   */
-  private validateChoices(choices: any[]): void {
-    if (choices.length < 2) {
-      throw new Error('Question must have at least 2 choices');
-    }
+    it('[TC_25] Báo lỗi khi mảng section rỗng', async () => {
+      await expect(service.getQuestionsBySection([])).rejects.toThrow('At least one section must be specified');
+    });
+  });
 
-    // Check exactly one correct answer
-    const correctChoices = choices.filter((c) => c.IsCorrect);
-    if (correctChoices.length !== 1) {
-      throw new Error('Question must have exactly one correct answer');
-    }
-
-    // Check unique attributes
-    const attributes = choices.map((c) => c.Attribute);
-    const uniqueAttributes = new Set(attributes);
-    if (attributes.length !== uniqueAttributes.size) {
-      throw new Error('Choice attributes must be unique');
-    }
-
-    // Check all choices have content
-    const emptyChoices = choices.filter((c) => !c.Content || c.Content.trim() === '');
-    if (emptyChoices.length > 0) {
-      throw new Error('All choices must have content');
-    }
-  }
-
-  /**
-   * Validate media requirements
-   * 
-   * Different question types have different media requirements:
-   * - Listening questions need audio URL
-   * - Some questions need images (Part 1, Part 7 documents)
-   * - Reading passages need script text
-   * 
-   * This validation ensures questions have the necessary assets
-   * to be displayed correctly.
-   * 
-   * @param media - Media data to validate
-   * @throws Error if validation fails
-   */
-  private validateMediaRequirements(media: any): void {
-    // Listening questions require audio
-    if (media.Skill === 'LISTENING' && !media.AudioUrl) {
-      throw new Error('Listening questions must have audio URL');
-    }
-
-    // Part 1 (Photo description) requires image
-    if (media.Section === '1' && !media.ImageUrl) {
-      throw new Error('Part 1 questions must have an image');
-    }
-
-    // Validate URLs if provided
-    if (media.AudioUrl && !this.isValidUrl(media.AudioUrl)) {
-      throw new Error('Invalid audio URL format');
-    }
-
-    if (media.ImageUrl && !this.isValidUrl(media.ImageUrl)) {
-      throw new Error('Invalid image URL format');
-    }
-  }
-
-  /**
-   * Check if string is a valid URL
-   * 
-   * Simple URL validation. For local development, we accept
-   * paths like '/uploads/audio/file.mp3'. In production with
-   * Cloudinary, these would be full HTTPS URLs.
-   * 
-   * @param url - URL string to validate
-   * @returns True if valid URL format
-   */
-  private isValidUrl(url: string): boolean {
-    // Accept both full URLs and relative paths
-    return url.startsWith('http://') || 
-           url.startsWith('https://') || 
-           url.startsWith('/');
-  }
-
-  /**
-   * Transform question entity to list response DTO
-   * 
-   * Formats question data for display in lists (like question bank).
-   * Includes usage count so administrators can see which questions
-   * are popular and which are unused.
-   * 
-   * @param question - Question entity from database
-   * @param usageCount - Number of exams using this question
-   * @returns Formatted response DTO
-   */
-  private transformToQuestionListResponse(
-    question: Question,
-    usageCount: number
-  ): QuestionListResponseDto {
-    return {
-      ID: question.ID,
-      QuestionText: question.QuestionText || '',
-      Media: question.mediaQuestion ? {
-        Skill: question.mediaQuestion.Skill || '',
-        Type: question.mediaQuestion.Type,
-        Section: question.mediaQuestion.Section || '',
-        AudioUrl: question.mediaQuestion.AudioUrl,
-        ImageUrl: question.mediaQuestion.ImageUrl,
-        Script: question.mediaQuestion.Scirpt,
-      } : {
-        Skill: '',
-        Type: '',
-        Section: '',
-      },
-      Choices: (question.choices || []).map((choice) => ({
-        ID: choice.ID,
-        Attribute: choice.Attribute || '',
-        Content: choice.Content || '',
-        IsCorrect: choice.IsCorrect,
-      })),
-      UsageCount: usageCount,
-      CreatedBy: question.UserID || 0,
-    };
-  }
-}
+  describe('H. Statistics', () => {
+    it('[TC_26] Lấy thống kê thành công', async () => {
+      const mockEntity = createMockQuestionEntity();
+      mockRepo.findById.mockResolvedValue(mockEntity as any);
+      mockRepo.getUsageStats.mockResolvedValue({ total: 100 });
+      const result = await service.getQuestionStatistics(1);
+      expect(result.total).toBe(100);
+    });
+  });
+});
