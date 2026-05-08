@@ -7,6 +7,12 @@ jest.mock('../../../infrastructure/repositories/exam.repository');
 jest.mock('../../../infrastructure/repositories/question.repository');
 jest.mock('../../../infrastructure/repositories/media-question.repository');
 
+// Quy ước chú thích trong file test:
+// INPUT: dữ liệu truyền trực tiếp vào hàm service cần test.
+// MOCK DATA: dữ liệu giả lập repository trả về, không phải dữ liệu DB thật.
+// ACTION: lời gọi hàm service đang được kiểm thử.
+// EXPECTED: kết quả trả về, lỗi ném ra, hoặc mock repository call được kỳ vọng.
+
 // =====================================================================
 // Factory: Tạo mock data, dùng JSON.parse/stringify để đảm bảo mỗi
 // test nhận được bản sao độc lập, tránh shared mutable state.
@@ -66,6 +72,7 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Trả về đúng 3 đề, gọi repo với undefined (không filter).
      */
     it('[TC_EX_001] Lấy tất cả đề thi không lọc', async () => {
+      // MOCK DATA: repository trả về 3 đề thi giả lập.
       const mockList = [
         { ID: 1, Title: 'ETS 2023 Test 1', Type: 'FULL_TEST' },
         { ID: 2, Title: 'ETS 2023 Test 2', Type: 'FULL_TEST' },
@@ -73,8 +80,10 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
       ];
       mockExamRepo.findAll.mockResolvedValueOnce(mockList as any);
 
+      // ACTION: gọi service không truyền filter.
       const result = await service.getAllExams();
 
+      // EXPECTED: trả đúng 3 item và repository được gọi với undefined filter.
       expect(result).toHaveLength(3);
       expect(mockExamRepo.findAll).toHaveBeenCalledWith(undefined);
     });
@@ -85,13 +94,16 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Trả về 2 đề FULL_TEST, gọi repo với đúng filter.
      */
     it('[TC_EX_002] Lọc chỉ lấy đề FULL_TEST', async () => {
+      // MOCK DATA: repository trả về 2 đề FULL_TEST.
       mockExamRepo.findAll.mockResolvedValueOnce([
         { ID: 1, Title: 'ETS 2023 Test 1', Type: 'FULL_TEST' },
         { ID: 2, Title: 'ETS 2023 Test 2', Type: 'FULL_TEST' },
       ] as any);
 
+      // INPUT + ACTION: truyền filter Type='FULL_TEST'.
       const result = await service.getAllExams({ Type: 'FULL_TEST' });
 
+      // EXPECTED: service trả 2 item và truyền nguyên filter xuống repository mock.
       expect(result).toHaveLength(2);
       expect(mockExamRepo.findAll).toHaveBeenCalledWith({ Type: 'FULL_TEST' });
     });
@@ -102,10 +114,13 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Gọi repo với đúng tham số ExamTypeID.
      */
     it('[TC_EX_003] Lọc theo ExamTypeID', async () => {
+      // MOCK DATA: repository trả về danh sách giả lập khi lọc ExamTypeID.
       mockExamRepo.findAll.mockResolvedValueOnce([{ ID: 1 }] as any);
 
+      // INPUT + ACTION: truyền filter ExamTypeID=2.
       await service.getAllExams({ ExamTypeID: 2 });
 
+      // EXPECTED: repository mock nhận đúng filter.
       expect(mockExamRepo.findAll).toHaveBeenCalledWith({ ExamTypeID: 2 });
     });
 
@@ -115,8 +130,10 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Trả về mảng rỗng, không ném lỗi.
      */
     it('[TC_EX_004] Không có đề thi nào → trả về mảng rỗng', async () => {
+      // MOCK DATA: repository trả về mảng rỗng.
       mockExamRepo.findAll.mockResolvedValueOnce([] as any);
 
+      // ACTION + EXPECTED: service trả [] thay vì throw lỗi.
       const result = await service.getAllExams();
 
       expect(result).toEqual([]);
@@ -134,10 +151,13 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Trả về đúng tiêu đề, thời gian và danh sách câu hỏi.
      */
     it('[TC_EX_005] Lấy chi tiết đề thi thành công', async () => {
+      // MOCK DATA: đề thi đầy đủ examType, examQuestions, media và choices.
       mockExamRepo.findById.mockResolvedValueOnce(createMockExamDetail() as any);
 
+      // INPUT + ACTION: lấy chi tiết ExamID=1.
       const result = await service.getExamById(1);
 
+      // EXPECTED: response map đúng metadata và danh sách câu hỏi.
       expect(result.ID).toBe(1);
       expect(result.Title).toBe('ETS 2023 Test 1');
       expect(result.TimeExam).toBe(120);
@@ -150,11 +170,14 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Trường IsCorrect phải bị loại bỏ khỏi response để tránh lộ đáp án.
      */
     it('[TC_EX_006] IsCorrect của choices bị ẩn (bảo mật)', async () => {
+      // MOCK DATA: đề thi có choices; service response cho học sinh không được lộ IsCorrect.
       mockExamRepo.findById.mockResolvedValueOnce(createMockExamDetail() as any);
 
+      // ACTION: lấy chi tiết đề thi.
       const result = await service.getExamById(1);
       const choices = result.Questions[0].Choices;
 
+      // EXPECTED: mọi choice trong response đều không có field IsCorrect.
       choices.forEach(choice => {
         expect(choice).not.toHaveProperty('IsCorrect');
       });
@@ -166,6 +189,7 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Service phải sắp xếp lại tăng dần theo OrderIndex trước khi trả về.
      */
     it('[TC_EX_007] Questions được sắp xếp đúng thứ tự OrderIndex', async () => {
+      // MOCK DATA: examQuestions trả về không theo thứ tự OrderIndex.
       const shuffledExam = createMockExamDetail({
         examQuestions: [
           { OrderIndex: 3, question: { ID: 3, QuestionText: 'Q3', mediaQuestion: { ID: 3, Skill: 'READING', Type: 'Part5', Section: '5', AudioUrl: null, ImageUrl: null, Scirpt: null }, choices: [] } },
@@ -175,8 +199,10 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
       });
       mockExamRepo.findById.mockResolvedValueOnce(shuffledExam as any);
 
+      // ACTION: service transform chi tiết đề thi.
       const result = await service.getExamById(1);
 
+      // EXPECTED: Questions trong response được sort tăng dần theo OrderIndex.
       expect(result.Questions[0].OrderIndex).toBe(1);
       expect(result.Questions[1].OrderIndex).toBe(2);
       expect(result.Questions[2].OrderIndex).toBe(3);
@@ -188,10 +214,12 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Trả về mảng Questions rỗng thay vì crash.
      */
     it('[TC_EX_008] Đề thi không có câu hỏi (examQuestions=undefined) → Questions = []', async () => {
+      // MOCK DATA: relation examQuestions không được load, giá trị undefined.
       mockExamRepo.findById.mockResolvedValueOnce(
         createMockExamDetail({ examQuestions: undefined }) as any,
       );
 
+      // EXPECTED: service fallback Questions=[] an toàn.
       const result = await service.getExamById(1);
 
       expect(result.Questions).toEqual([]);
@@ -203,8 +231,10 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Ném lỗi 'Exam not found'.
      */
     it('[TC_EX_009] Đề thi không tồn tại → ném lỗi', async () => {
+      // MOCK DATA: repository không tìm thấy exam.
       mockExamRepo.findById.mockResolvedValueOnce(undefined as any);
 
+      // INPUT + EXPECTED: ExamID không tồn tại phải throw.
       await expect(service.getExamById(999))
         .rejects.toThrow('Exam not found');
     });
@@ -215,10 +245,12 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Trả về mảng Questions rỗng, không ném lỗi.
      */
     it('[TC_EX_010] examQuestions là mảng rỗng → Questions = []', async () => {
+      // MOCK DATA: đề thi tồn tại nhưng examQuestions là mảng rỗng.
       mockExamRepo.findById.mockResolvedValueOnce(
         createMockExamDetail({ examQuestions: [] }) as any,
       );
 
+      // EXPECTED: service trả Questions=[].
       const result = await service.getExamById(1);
 
       expect(result.Questions).toEqual([]);
@@ -230,6 +262,7 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Các trường null phải được chuyển thành chuỗi rỗng '', không bị undefined.
      */
     it('[TC_EX_011] exam.Type null → trả về chuỗi rỗng (nhánh falsy ||)', async () => {
+      // MOCK DATA: nhiều field nullable trả về null để test fallback chuỗi rỗng.
       mockExamRepo.findById.mockResolvedValueOnce(createMockExamDetail({
         Type: null,
         examType: { ID: 1, Code: 'FULL', Description: null },
@@ -243,8 +276,10 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
         }],
       }) as any);
 
+      // ACTION: transform exam detail sang response DTO.
       const result = await service.getExamById(1);
 
+      // EXPECTED: các field text null được fallback thành ''.
       expect(result.Type).toBe('');
       expect(result.ExamType.Description).toBe('');
       expect(result.Questions[0].QuestionText).toBe('');
@@ -259,10 +294,12 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Kích hoạt nhánh false của ternary, trả về mảng Questions rỗng.
      */
     it('[TC_EX_012] examQuestions null (falsy path của ternary) → Questions = []', async () => {
+      // MOCK DATA: examQuestions=null, khác với undefined và [].
       mockExamRepo.findById.mockResolvedValueOnce(
         createMockExamDetail({ examQuestions: null }) as any,
       );
 
+      // EXPECTED: service vẫn fallback Questions=[].
       const result = await service.getExamById(1);
 
       expect(result.Questions).toEqual([]);
@@ -276,6 +313,7 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Phải ném lỗi 'Invalid question data' thay vì crash không kiểm soát.
      */
     it('[TC_EX_013] LỖI: NPE khi question.mediaQuestion=null trong examQuestions', async () => {
+      // MOCK DATA: dữ liệu câu hỏi bị hỏng, mediaQuestion=null.
       mockExamRepo.findById.mockResolvedValueOnce(createMockExamDetail({
         examQuestions: [{
           OrderIndex: 1,
@@ -287,6 +325,7 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
         }],
       }) as any);
 
+      // EXPECTED: hệ thống đúng phải throw lỗi nghiệp vụ có kiểm soát, không crash TypeError.
       await expect(service.getExamById(1))
         .rejects.toThrow('Invalid question data');
     });
@@ -303,13 +342,16 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Trả về 2 đề, gọi repo với đúng từ khóa.
      */
     it('[TC_EX_014] Tìm kiếm theo từ khóa "ETS" thành công', async () => {
+      // MOCK DATA: repository tìm thấy 2 đề theo keyword ETS.
       mockExamRepo.searchByTitle.mockResolvedValueOnce([
         { ID: 1, Title: 'ETS 2023 Test 1' },
         { ID: 2, Title: 'ETS 2022 Test 1' },
       ] as any);
 
+      // INPUT + ACTION: tìm kiếm với term='ETS'.
       const result = await service.searchExams('ETS');
 
+      // EXPECTED: trả 2 item và truyền đúng keyword xuống repository mock.
       expect(result).toHaveLength(2);
       expect(mockExamRepo.searchByTitle).toHaveBeenCalledWith('ETS');
     });
@@ -320,8 +362,10 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Trả về mảng rỗng, không ném lỗi.
      */
     it('[TC_EX_015] Từ khóa không tìm thấy đề nào → trả về mảng rỗng', async () => {
+      // MOCK DATA: repository không tìm thấy kết quả.
       mockExamRepo.searchByTitle.mockResolvedValueOnce([] as any);
 
+      // EXPECTED: empty search trả [].
       const result = await service.searchExams('XYZ_NOT_EXIST');
 
       expect(result).toEqual([]);
@@ -333,6 +377,7 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Ném lỗi 'Search term cannot be empty' trước khi gọi DB.
      */
     it('[TC_EX_016] Từ khóa tìm kiếm rỗng → ném lỗi', async () => {
+      // INPUT + EXPECTED: term rỗng bị validation chặn trước khi gọi repository.
       await expect(service.searchExams(''))
         .rejects.toThrow('Search term cannot be empty');
     });
@@ -343,6 +388,7 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Ném lỗi 'Search term cannot be empty', không gọi DB.
      */
     it('[TC_EX_017] Từ khóa chỉ có khoảng trắng → ném lỗi', async () => {
+      // INPUT + EXPECTED: term chỉ có whitespace sau trim() là rỗng nên phải throw.
       await expect(service.searchExams('   '))
         .rejects.toThrow('Search term cannot be empty');
     });
@@ -353,10 +399,13 @@ describe('ExamService - Luyện đề (Xem và tìm đề thi)', () => {
      * Kỳ vọng: Service không xử lý thêm, truyền nguyên văn xuống repo (sanitize là việc của DB layer).
      */
     it('[TC_EX_018] Từ khóa có ký tự đặc biệt → gọi repo bình thường', async () => {
+      // MOCK DATA: repository trả [] nhưng vẫn được gọi với nguyên keyword có ký tự đặc biệt.
       mockExamRepo.searchByTitle.mockResolvedValueOnce([] as any);
 
+      // ACTION: tìm kiếm với chuỗi chứa %.
       await service.searchExams('ETS%2023');
 
+      // EXPECTED: service không sanitize ở layer này, chỉ passthrough xuống repository mock.
       expect(mockExamRepo.searchByTitle).toHaveBeenCalledWith('ETS%2023');
     });
   });

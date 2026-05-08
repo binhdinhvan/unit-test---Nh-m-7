@@ -6,6 +6,12 @@ import { CreateMediaGroupDto } from '../../dtos/media-group.dto';
 jest.mock('../../../infrastructure/repositories/media-question.repository');
 jest.mock('../../../infrastructure/repositories/question.repository');
 
+// Quy ước chú thích trong file test:
+// INPUT: dữ liệu truyền trực tiếp vào hàm service cần test.
+// MOCK DATA: dữ liệu giả lập repository trả về, không phải dữ liệu DB thật.
+// ACTION: lời gọi hàm service đang được kiểm thử.
+// EXPECTED: kết quả trả về, lỗi ném ra, hoặc mock repository call được kỳ vọng.
+
 // Factory để clone dữ liệu mock, tránh việc chia sẻ trạng thái (shared mutable state) giữa các test case
 const createMockMedia = (ov: any = {}) => structuredClone({
   ID: 1, Skill: 'LISTENING', Type: 'CONVERSATION', Section: '3',
@@ -69,9 +75,12 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Ánh xạ đúng các trường tóm tắt (HasAudio, HasImage, Title).
      */
     it('[TC_01] Lấy danh sách nhóm câu hỏi thành công', async () => {
+      // MOCK DATA: repository trả về 1 media group có audio, không có image.
       mRepo.findWithFilters.mockResolvedValueOnce({ mediaQuestions: [createMockMedia()], total: 1 });
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
+      // ACTION: gọi browse không truyền filter.
       const r = await svc.getMediaGroupsForBrowsing();
+      // EXPECTED: response map đúng title và flag HasAudio/HasImage.
       expect(r.groups).toHaveLength(1);
       expect(r.groups[0].Title).toBe('Office Talk');
       expect(r.groups[0].HasAudio).toBe(true);
@@ -84,13 +93,16 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Chuỗi bị cắt bớt còn 100 ký tự và thêm dấu '...' ở cuối.
      */
     it('[TC_02] Cắt ngắn chuỗi PreviewText khi vượt quá giới hạn', async () => {
+      // MOCK DATA: câu hỏi đầu tiên có QuestionText dài 105 ký tự.
       const longText = 'A'.repeat(105);
       const media = createMockMedia();
       media.questions[0].QuestionText = longText;
       mRepo.findWithFilters.mockResolvedValueOnce({ mediaQuestions: [media], total: 1 });
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
       
+      // ACTION: service tạo PreviewText từ câu hỏi đầu tiên.
       const r = await svc.getMediaGroupsForBrowsing();
+      // EXPECTED: PreviewText bị cắt còn 100 ký tự và nối thêm '...'.
       expect(r.groups[0].PreviewText.length).toBe(103); // 100 char + '...'
       expect(r.groups[0].PreviewText.endsWith('...')).toBe(true);
     });
@@ -101,7 +113,9 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Trả về mảng rỗng và tổng số lượng bằng 0.
      */
     it('[TC_03] Lấy danh sách khi không có dữ liệu', async () => {
+      // MOCK DATA: repository trả danh sách rỗng.
       mRepo.findWithFilters.mockResolvedValueOnce({ mediaQuestions: [], total: 0 });
+      // ACTION + EXPECTED: service trả groups=[] và total=0.
       const r = await svc.getMediaGroupsForBrowsing();
       expect(r.groups).toEqual([]);
       expect(r.total).toBe(0);
@@ -113,8 +127,11 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Gán giá trị mặc định là Page=1, Limit=20.
      */
     it('[TC_04] Áp dụng phân trang mặc định', async () => {
+      // MOCK DATA: tổng 100 record, không có item trong page hiện tại.
       mRepo.findWithFilters.mockResolvedValueOnce({ mediaQuestions: [], total: 100 });
+      // INPUT: không truyền Page/Limit nên service dùng mặc định Page=1, Limit=20.
       const r = await svc.getMediaGroupsForBrowsing();
+      // EXPECTED: TotalPages = ceil(100 / 20) = 5.
       expect(r.pagination).toEqual({ CurrentPage: 1, TotalPages: 5, Limit: 20 });
     });
 
@@ -124,8 +141,11 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Sử dụng Math.ceil để làm tròn lên thành 4 trang.
      */
     it('[TC_05] Tính toán tổng số trang phân trang', async () => {
+      // MOCK DATA: tổng 33 record.
       mRepo.findWithFilters.mockResolvedValueOnce({ mediaQuestions: [], total: 33 });
+      // INPUT: Page=2, Limit=10.
       const r = await svc.getMediaGroupsForBrowsing({ Page: 2, Limit: 10 } as any);
+      // EXPECTED: TotalPages = ceil(33 / 10) = 4.
       expect(r.pagination.TotalPages).toBe(4);
     });
 
@@ -135,8 +155,10 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Tự động tạo tiêu đề dựa trên Type và Section (Fallback behavior).
      */
     it('[TC_06] Fallback tiêu đề nhóm khi GroupTitle bị null', async () => {
+      // MOCK DATA: GroupTitle=null để service phải sinh title mặc định.
       mRepo.findWithFilters.mockResolvedValueOnce({ mediaQuestions: [createMockMedia({ GroupTitle: null })], total: 1 });
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
+      // ACTION + EXPECTED: Title fallback từ Type và Section.
       const r = await svc.getMediaGroupsForBrowsing();
       expect(r.groups[0].Title).toBe('CONVERSATION - Part 3');
     });
@@ -147,8 +169,10 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Fallback về mảng rỗng cho Tags và 'MEDIUM' cho Difficulty.
      */
     it('[TC_07] Fallback dữ liệu khi Tags hoặc Difficulty bị null', async () => {
+      // MOCK DATA: Tags và Difficulty null.
       mRepo.findWithFilters.mockResolvedValueOnce({ mediaQuestions: [createMockMedia({ Tags: null, Difficulty: null })], total: 1 });
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
+      // EXPECTED: Tags fallback [], Difficulty fallback 'MEDIUM'.
       const r = await svc.getMediaGroupsForBrowsing();
       expect(r.groups[0].Tags).toEqual([]);
       expect(r.groups[0].Difficulty).toBe('MEDIUM');
@@ -160,10 +184,12 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Gọi DB để đếm lại và không bị crash hệ thống.
      */
     it('[TC_08] Xử lý an toàn khi mảng questions bị null', async () => {
+      // MOCK DATA: relation questions=null; service phải gọi qRepo để đếm và lấy first question.
       mRepo.findWithFilters.mockResolvedValueOnce({ mediaQuestions: [createMockMedia({ questions: null })], total: 1 });
       qRepo.countByMediaQuestionId.mockResolvedValueOnce(0);
       qRepo.findFirstByMediaQuestionId.mockResolvedValueOnce(null as any);
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
+      // EXPECTED: không crash, QuestionCount=0.
       const r = await svc.getMediaGroupsForBrowsing();
       expect(r.groups[0].QuestionCount).toBe(0);
     });
@@ -180,11 +206,14 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Sắp xếp các câu hỏi con tăng dần theo OrderInGroup.
      */
     it('[TC_09] Lấy chi tiết nhóm câu hỏi thành công', async () => {
+      // MOCK DATA: questions cố ý bị đảo thứ tự.
       const m = createMockMedia();
       m.questions = [m.questions[1], m.questions[0]];
       mRepo.findById.mockResolvedValueOnce(m);
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
+      // ACTION: lấy detail media group.
       const r = await svc.getMediaGroupDetail(1);
+      // EXPECTED: response Questions được sort theo OrderInGroup tăng dần.
       expect(r.Questions[0].OrderInGroup).toBe(1);
       expect(r.Questions[1].OrderInGroup).toBe(2);
       expect(r.TotalQuestions).toBe(2);
@@ -196,7 +225,9 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Ném lỗi 'Media group not found'.
      */
     it('[TC_10] Báo lỗi khi không tìm thấy nhóm câu hỏi', async () => {
+      // MOCK DATA: repository không tìm thấy media group.
       mRepo.findById.mockResolvedValueOnce(null);
+      // EXPECTED: ID không tồn tại phải throw.
       await expect(svc.getMediaGroupDetail(999)).rejects.toThrow('Media group not found');
     });
 
@@ -206,8 +237,10 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Trả về mảng Questions rỗng thay vì crash ứng dụng.
      */
     it('[TC_11] Xử lý an toàn khi không load được questions từ DB', async () => {
+      // MOCK DATA: relation questions=undefined.
       mRepo.findById.mockResolvedValueOnce(createMockMedia({ questions: undefined }));
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
+      // EXPECTED: Questions fallback [].
       const r = await svc.getMediaGroupDetail(1);
       expect(r.Questions).toEqual([]);
     });
@@ -218,9 +251,11 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Trả về mảng Choices rỗng cho câu hỏi đó.
      */
     it('[TC_12] Xử lý an toàn khi không load được choices từ DB', async () => {
+      // MOCK DATA: question đầu tiên có choices=undefined.
       const m = createMockMedia(); m.questions[0].choices = undefined;
       mRepo.findById.mockResolvedValueOnce(m);
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
+      // EXPECTED: Choices fallback [] cho question đó.
       const r = await svc.getMediaGroupDetail(1);
       expect(r.Questions[0].Choices).toEqual([]);
     });
@@ -231,13 +266,15 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * LỖI THỰC TẾ: Code dev dùng trực tiếp `.sort()` làm thay đổi thứ tự mảng questions gốc từ repository.
      */
     it('[TC_13] LỖI: .sort() làm biến đổi mảng gốc từ repository', async () => {
+      // MOCK DATA: giữ lại thứ tự gốc [11, 10] trước khi service sort.
       const m = createMockMedia();
       m.questions = [m.questions[1], m.questions[0]];
       const orig = m.questions.map((q: any) => q.ID);
       mRepo.findById.mockResolvedValueOnce(m);
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
+      // ACTION: service gọi .sort() trực tiếp trên m.questions.
       await svc.getMediaGroupDetail(1);
-      // Kỳ vọng mảng gốc không bị đổi thứ tự
+      // EXPECTED: implementation tốt không được mutate mảng gốc.
       expect(m.questions.map((q: any) => q.ID)).toEqual(orig);
     });
   });
@@ -253,11 +290,14 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Gọi repository tạo media và questions, trả về ID mới.
      */
     it('[TC_14] Tạo nhóm câu hỏi mới thành công', async () => {
+      // MOCK DATA: tạo media thành công, tạo questions thành công, sau đó get detail trả media mới.
       mRepo.create.mockResolvedValueOnce({ ID: 5 } as any);
       qRepo.createMultipleForMedia.mockResolvedValueOnce([{ ID: 50 }] as any);
       mRepo.findById.mockResolvedValueOnce(createMockMedia({ ID: 5 }));
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
+      // INPUT + ACTION: DTO hợp lệ và userId=1.
       const r = await svc.createMediaGroup(createDto(), 1);
+      // EXPECTED: detail trả về ID media group mới.
       expect(r.MediaQuestionID).toBe(5);
     });
 
@@ -267,6 +307,8 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Báo lỗi yêu cầu ít nhất 1 câu hỏi.
      */
     it('[TC_15] Báo lỗi khi tạo nhóm không có câu hỏi', async () => {
+      // INPUT: Questions=[] không hợp lệ.
+      // EXPECTED: validate fail trước khi gọi repository create.
       await expect(svc.createMediaGroup(createDto({ Questions: [] }), 1))
         .rejects.toThrow('at least one question');
     });
@@ -277,10 +319,12 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Báo lỗi yêu cầu OrderInGroup phải unique.
      */
     it('[TC_16] Báo lỗi khi trùng lặp thứ tự OrderInGroup', async () => {
+      // INPUT: 2 questions cùng OrderInGroup=1.
       const d = createDto({ Questions: [
         { QuestionText: 'Q1', OrderInGroup: 1, Choices: createDto().Questions[0].Choices },
         { QuestionText: 'Q2', OrderInGroup: 1, Choices: createDto().Questions[0].Choices },
       ]});
+      // EXPECTED: validate unique order fail.
       await expect(svc.createMediaGroup(d, 1)).rejects.toThrow('unique');
     });
 
@@ -290,8 +334,10 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Báo lỗi yêu cầu tối thiểu 2 đáp án.
      */
     it('[TC_17] Báo lỗi khi câu hỏi có ít hơn 2 đáp án', async () => {
+      // INPUT: question chỉ có 1 choice.
       const d = createDto({ Questions: [{ QuestionText: 'Q', OrderInGroup: 1,
         Choices: [{ Content: 'A', Attribute: 'A', IsCorrect: true }] }] });
+      // EXPECTED: validate số lượng choices fail.
       await expect(svc.createMediaGroup(d, 1)).rejects.toThrow('at least 2 choices');
     });
 
@@ -301,11 +347,13 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Báo lỗi yêu cầu chính xác 1 đáp án đúng.
      */
     it('[TC_18] Báo lỗi khi câu hỏi không có đáp án đúng', async () => {
+      // INPUT: question có 2 choices nhưng không có IsCorrect=true.
       const d = createDto({ Questions: [{ QuestionText: 'Q', OrderInGroup: 1,
         Choices: [
           { Content: 'A', Attribute: 'A', IsCorrect: false },
           { Content: 'B', Attribute: 'B', IsCorrect: false },
         ] }] });
+      // EXPECTED: validate đúng 1 correct choice fail.
       await expect(svc.createMediaGroup(d, 1)).rejects.toThrow('exactly one correct');
     });
 
@@ -315,8 +363,10 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Service phải bắt và ném lại lỗi DB cho caller xử lý.
      */
     it('[TC_19] Báo lỗi khi quá trình insert câu hỏi vào DB thất bại', async () => {
+      // MOCK DATA: media tạo thành công nhưng repository tạo questions throw lỗi.
       mRepo.create.mockResolvedValueOnce({ ID: 5 } as any);
       qRepo.createMultipleForMedia.mockRejectedValueOnce(new Error('DB error'));
+      // EXPECTED: service truyền lỗi repository lên caller.
       await expect(svc.createMediaGroup(createDto(), 1)).rejects.toThrow('DB error');
     });
 
@@ -326,9 +376,12 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * LỖI THỰC TẾ: Code dev thiếu logic xóa MediaGroup vừa tạo khi Questions bị lỗi, gây rác DB.
      */
     it('[TC_20] LỖI: Không rollback dữ liệu Media khi tạo Questions thất bại', async () => {
+      // MOCK DATA: media đã tạo ID=77, bước tạo questions bị lỗi.
       mRepo.create.mockResolvedValueOnce({ ID: 77 } as any);
       qRepo.createMultipleForMedia.mockRejectedValueOnce(new Error('FK error'));
+      // ACTION: nuốt lỗi để kiểm tra side-effect rollback.
       try { await svc.createMediaGroup(createDto(), 1); } catch (e) {}
+      // EXPECTED: implementation tốt phải gọi delete media vừa tạo.
       expect(mRepo.delete).toHaveBeenCalledWith(77); // Fail: không có hàm rollback
     });
 
@@ -338,12 +391,15 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * LỖI THỰC TẾ: Dev chỉ dùng console.warn thay vì chặn (throw Error), dẫn đến bài nghe không có file âm thanh.
      */
     it('[TC_21] LỖI: Chỉ cảnh báo thay vì chặn lưu bài Listening không có AudioUrl', async () => {
+      // INPUT: LISTENING media thiếu AudioUrl.
       const d = createDto({ Media: { Skill: 'LISTENING', Type: 'CONVERSATION', Section: '3' } } as any);
+      // MOCK DATA: nếu không validate, service vẫn tiếp tục tạo data và trả detail.
       jest.spyOn(console, 'warn').mockImplementation();
       mRepo.create.mockResolvedValueOnce({ ID: 88 } as any);
       qRepo.createMultipleForMedia.mockResolvedValueOnce([{ ID: 880 }] as any);
       mRepo.findById.mockResolvedValueOnce(createMockMedia({ ID: 88 }));
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
+      // EXPECTED: hệ thống đúng phải throw thay vì chỉ console.warn.
       await expect(svc.createMediaGroup(d, 1)).rejects.toThrow('AudioUrl is required');
       (console.warn as jest.Mock).mockRestore();
     });
@@ -354,10 +410,12 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * LỖI THỰC TẾ: Không có logic trim() và chặn tiêu đề rỗng, dẫn đến hiển thị UI bị lỗi.
      */
     it('[TC_22] LỖI: Chấp nhận lưu tiêu đề nhóm (Title) chỉ chứa khoảng trắng', async () => {
+      // MOCK DATA: nếu service không validate Title, repository vẫn tạo thành công.
       mRepo.create.mockResolvedValueOnce({ ID: 89 } as any);
       qRepo.createMultipleForMedia.mockResolvedValueOnce([{ ID: 890 }] as any);
       mRepo.findById.mockResolvedValueOnce(createMockMedia({ ID: 89, GroupTitle: '   ' }));
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
+      // INPUT + EXPECTED: Title chỉ có whitespace phải bị reject.
       await expect(svc.createMediaGroup(createDto({ Title: '   ' }), 1)).rejects.toThrow('Title cannot be empty');
     });
 
@@ -367,15 +425,18 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * LỖI THỰC TẾ: Thiếu logic kiểm tra uniqueness của Attribute trong mảng Choices.
      */
     it('[TC_23] LỖI: Chấp nhận các đáp án có ký hiệu (Attribute) trùng nhau', async () => {
+      // INPUT: 2 choices cùng Attribute='A'.
       const d = createDto({ Questions: [{ QuestionText: 'Q', OrderInGroup: 1,
         Choices: [
           { Content: 'X', Attribute: 'A', IsCorrect: true },
           { Content: 'Y', Attribute: 'A', IsCorrect: false },
         ] }] } as any);
+      // MOCK DATA: nếu service không validate Attribute unique, repository vẫn tạo thành công.
       mRepo.create.mockResolvedValueOnce({ ID: 90 } as any);
       qRepo.createMultipleForMedia.mockResolvedValueOnce([{ ID: 900 }] as any);
       mRepo.findById.mockResolvedValueOnce(createMockMedia({ ID: 90 }));
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
+      // EXPECTED: hệ thống đúng phải throw lỗi duplicate Attribute.
       await expect(svc.createMediaGroup(d, 1)).rejects.toThrow('Choice attributes must be unique');
     });
 
@@ -385,11 +446,14 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * LỖI THỰC TẾ: Không có logic check độ dài, có thể gây crash DB nếu cột là VARCHAR.
      */
     it('[TC_24] LỖI: Không giới hạn độ dài của tiêu đề nhóm (> 500 ký tự)', async () => {
+      // INPUT: Title dài 505 ký tự.
       const longTitle = 'A'.repeat(505);
+      // MOCK DATA: nếu service không validate max length, repository vẫn tạo thành công.
       mRepo.create.mockResolvedValueOnce({ ID: 91 } as any);
       qRepo.createMultipleForMedia.mockResolvedValueOnce([{ ID: 910 }] as any);
       mRepo.findById.mockResolvedValueOnce(createMockMedia({ ID: 91, GroupTitle: longTitle }));
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
+      // EXPECTED: hệ thống đúng phải chặn Title quá dài.
       await expect(svc.createMediaGroup(createDto({ Title: longTitle }), 1)).rejects.toThrow('Title exceeds maximum length of 500 characters');
     });
 
@@ -399,11 +463,14 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * LỖI THỰC TẾ: Không có logic check độ dài mô tả.
      */
     it('[TC_25] LỖI: Không giới hạn độ dài của mô tả nhóm (> 1000 ký tự)', async () => {
+      // INPUT: Description dài 1005 ký tự.
       const longDesc = 'A'.repeat(1005);
+      // MOCK DATA: nếu service không validate max length, repository vẫn tạo thành công.
       mRepo.create.mockResolvedValueOnce({ ID: 92 } as any);
       qRepo.createMultipleForMedia.mockResolvedValueOnce([{ ID: 920 }] as any);
       mRepo.findById.mockResolvedValueOnce(createMockMedia({ ID: 92, GroupDescription: longDesc }));
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
+      // EXPECTED: hệ thống đúng phải chặn Description quá dài.
       await expect(svc.createMediaGroup(createDto({ Description: longDesc }), 1)).rejects.toThrow('Description exceeds maximum length of 1000 characters');
     });
   });
@@ -419,10 +486,13 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Service chỉ cập nhật đúng trường Title, giữ nguyên các trường khác.
      */
     it('[TC_26] Cập nhật thông tin cục bộ (chỉ trường được chọn)', async () => {
+      // MOCK DATA: media group tồn tại và update trả về entity.
       mRepo.findById.mockResolvedValue(createMockMedia());
       mRepo.update.mockResolvedValueOnce(createMockMedia());
       mRepo.getUsageStats.mockResolvedValue(USAGE_ZERO);
+      // INPUT: chỉ update Title.
       await svc.updateMediaGroupMetadata(1, { Title: 'New' } as any);
+      // EXPECTED: payload gửi xuống repository chỉ map Title -> GroupTitle.
       expect(mRepo.update.mock.calls[0][1]).toHaveProperty('GroupTitle', 'New');
     });
 
@@ -432,10 +502,12 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Gói cập nhật gửi tới repository chứa đầy đủ các trường đã map đúng tên.
      */
     it('[TC_27] Cập nhật toàn bộ các trường thông tin của nhóm', async () => {
+      // MOCK DATA: media group tồn tại và update thành công.
       mRepo.findById.mockResolvedValue(createMockMedia());
       mRepo.update.mockResolvedValueOnce(createMockMedia());
       mRepo.getUsageStats.mockResolvedValue(USAGE_ZERO);
       
+      // INPUT: update metadata và media urls/script.
       await svc.updateMediaGroupMetadata(1, { 
         Title: 'New Title',
         Description: 'New Desc',
@@ -448,6 +520,7 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
         }
       } as any);
 
+      // EXPECTED: payload update được map đúng tên cột/entity field.
       const updates = mRepo.update.mock.calls[0][1];
       expect(updates).toHaveProperty('GroupTitle', 'New Title');
       expect(updates).toHaveProperty('GroupDescription', 'New Desc');
@@ -464,7 +537,9 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Từ chối thao tác và ném lỗi Not Found.
      */
     it('[TC_28] Báo lỗi khi cập nhật nhóm không tồn tại', async () => {
+      // MOCK DATA: repository không tìm thấy media group.
       mRepo.findById.mockResolvedValueOnce(null);
+      // EXPECTED: update ID không tồn tại phải throw.
       await expect(svc.updateMediaGroupMetadata(999, { Title: 'X' } as any))
         .rejects.toThrow('Media group not found');
     });
@@ -481,12 +556,16 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Đảm bảo thứ tự xóa đúng quy trình (xóa Questions trước rồi mới xóa MediaGroup).
      */
     it('[TC_29] Xóa toàn bộ dữ liệu nhóm theo đúng thứ tự Cascade', async () => {
+      // MOCK DATA: media tồn tại, usage=0 nên được phép xóa.
       mRepo.findById.mockResolvedValueOnce(createMockMedia());
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
+      // MOCK SIDE EFFECT: ghi lại thứ tự gọi xóa question và media.
       const order: string[] = [];
       qRepo.deleteByMediaQuestionId.mockImplementationOnce(async () => { order.push('q'); return 2; });
       mRepo.delete.mockImplementationOnce(async () => { order.push('m'); return true; });
+      // ACTION: xóa media group.
       const r = await svc.deleteMediaGroup(1);
+      // EXPECTED: xóa questions trước, media sau.
       expect(r).toBe(true);
       expect(order).toEqual(['q', 'm']); // Thứ tự xóa phải chuẩn
     });
@@ -497,7 +576,9 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Ném lỗi ngăn chặn hành động xóa dư thừa.
      */
     it('[TC_30] Báo lỗi khi xóa nhóm không tồn tại', async () => {
+      // MOCK DATA: media group không tồn tại.
       mRepo.findById.mockResolvedValueOnce(null);
+      // EXPECTED: service throw trước khi gọi delete.
       await expect(svc.deleteMediaGroup(999)).rejects.toThrow('Media group not found');
     });
 
@@ -507,8 +588,10 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Bắt buộc chặn thao tác xóa để bảo vệ dữ liệu lịch sử thi của học sinh.
      */
     it('[TC_31] Chặn xóa khi nhóm câu hỏi đang nằm trong kỳ thi', async () => {
+      // MOCK DATA: media tồn tại nhưng usageStats.usedInExams > 0.
       mRepo.findById.mockResolvedValueOnce(createMockMedia());
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ACTIVE); // usage > 0
+      // EXPECTED: service chặn xóa và không gọi mRepo.delete.
       await expect(svc.deleteMediaGroup(1)).rejects.toThrow('Cannot delete');
       expect(mRepo.delete).not.toHaveBeenCalled();
     });
@@ -519,11 +602,12 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * LỖI THỰC TẾ: Lệnh if (usageStats && usageStats.used > 0) bị sai logic null-safety, dẫn đến việc VẪN CHO PHÉP XÓA dù không rõ trạng thái.
      */
     it('[TC_32] LỖI: Bypass bảo vệ và cho phép xóa khi hệ thống không lấy được usageStats', async () => {
+      // MOCK DATA: usageStats=null, tức không xác minh được media có đang được dùng không.
       mRepo.findById.mockResolvedValueOnce(createMockMedia());
       mRepo.getUsageStats.mockResolvedValueOnce(null); // DB lỗi trả về null
       qRepo.deleteByMediaQuestionId.mockResolvedValueOnce(2);
       mRepo.delete.mockResolvedValueOnce(true);
-      // Kỳ vọng: Phải chặn xóa khi không rõ trạng thái (Null/Undefined)
+      // EXPECTED: implementation tốt phải fail-closed và không cho xóa.
       await expect(svc.deleteMediaGroup(1)).rejects.toThrow('Cannot verify usage stats');
     });
   });
@@ -544,10 +628,13 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Tạo thành công và trả về entity câu hỏi đó.
      */
     it('[TC_33] Thêm câu hỏi thành công', async () => {
+      // MOCK DATA: media group tồn tại, OrderInGroup=3 chưa bị dùng.
       mRepo.findById.mockResolvedValueOnce(createMockMedia());
       qRepo.isOrderInGroupUnique.mockResolvedValueOnce(true);
       qRepo.createMultipleForMedia.mockResolvedValueOnce([{ ID: 99, OrderInGroup: 3 }] as any);
+      // INPUT + ACTION: thêm question hợp lệ vào group 1.
       const r = await svc.addQuestionToGroup(1, vq, 1);
+      // EXPECTED: repository trả question mới ID=99.
       expect(r.ID).toBe(99);
     });
 
@@ -557,11 +644,14 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Hàm getNextOrderInGroup được gọi để tự gán ID tiếp theo.
      */
     it('[TC_34] Tự động gán số thứ tự nếu client không cung cấp', async () => {
+      // MOCK DATA: client truyền OrderInGroup=0, repository trả next order=3.
       mRepo.findById.mockResolvedValueOnce(createMockMedia());
       qRepo.getNextOrderInGroup.mockResolvedValueOnce(3);
       qRepo.isOrderInGroupUnique.mockResolvedValueOnce(true);
       qRepo.createMultipleForMedia.mockResolvedValueOnce([{ ID: 99 }] as any);
+      // ACTION: add question không có order hợp lệ.
       await svc.addQuestionToGroup(1, { ...vq, OrderInGroup: 0 }, 1);
+      // EXPECTED: service hỏi repository để lấy order tiếp theo.
       expect(qRepo.getNextOrderInGroup).toHaveBeenCalledWith(1);
     });
 
@@ -571,8 +661,10 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Chặn và báo lỗi "already used".
      */
     it('[TC_35] Báo lỗi khi số thứ tự (OrderInGroup) đã bị chiếm', async () => {
+      // MOCK DATA: media group tồn tại nhưng OrderInGroup=1 đã được dùng.
       mRepo.findById.mockResolvedValueOnce(createMockMedia());
       qRepo.isOrderInGroupUnique.mockResolvedValueOnce(false);
+      // EXPECTED: service throw và không tạo question.
       await expect(svc.addQuestionToGroup(1, { ...vq, OrderInGroup: 1 }, 1)).rejects.toThrow('already used');
     });
 
@@ -582,7 +674,9 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Từ chối thao tác ngay từ bước kiểm tra đầu tiên.
      */
     it('[TC_36] Báo lỗi khi thêm câu hỏi vào nhóm không tồn tại', async () => {
+      // MOCK DATA: media group không tồn tại.
       mRepo.findById.mockResolvedValueOnce(null);
+      // EXPECTED: service throw trước khi kiểm tra order hoặc tạo question.
       await expect(svc.addQuestionToGroup(999, vq, 1)).rejects.toThrow('Media group not found');
     });
 
@@ -592,10 +686,11 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * LỖI THỰC TẾ: Do code dev dùng `!orderInGroup` (kiểm tra falsy) nên số âm (-1) vẫn lọt qua kiểm tra và được ghi vào DB.
      */
     it('[TC_37] LỖI: Cho phép lưu thứ tự câu hỏi là số âm', async () => {
+      // MOCK DATA: media tồn tại; repository sẽ tạo question nếu service không chặn OrderInGroup âm.
       mRepo.findById.mockResolvedValueOnce(createMockMedia());
       qRepo.isOrderInGroupUnique.mockResolvedValueOnce(true);
       qRepo.createMultipleForMedia.mockResolvedValueOnce([{ ID: 99 }] as any);
-      // Kỳ vọng: Phải chặn giá trị OrderInGroup <= 0
+      // INPUT + EXPECTED: OrderInGroup=-1 phải bị reject.
       await expect(svc.addQuestionToGroup(1, { ...vq, OrderInGroup: -1 }, 1)).rejects.toThrow('OrderInGroup must be positive');
     });
 
@@ -605,13 +700,15 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * LỖI THỰC TẾ: Biến DTO bị mutate trực tiếp (`questionData.OrderInGroup = ...`), vi phạm nguyên tắc Clean Code và gây lỗi side-effect nếu DTO này được dùng ở nơi khác.
      */
     it('[TC_38] LỖI: Service làm biến đổi (mutate) object DTO truyền vào', async () => {
+      // MOCK DATA: service sẽ auto assign next order=5 nếu OrderInGroup=0.
       mRepo.findById.mockResolvedValueOnce(createMockMedia());
       qRepo.getNextOrderInGroup.mockResolvedValueOnce(5);
       qRepo.isOrderInGroupUnique.mockResolvedValueOnce(true);
       qRepo.createMultipleForMedia.mockResolvedValueOnce([{ ID: 99 }] as any);
+      // INPUT: giữ reference DTO để kiểm tra service có mutate trực tiếp không.
       const input = { ...vq, OrderInGroup: 0 };
       await svc.addQuestionToGroup(1, input, 1);
-      // Kỳ vọng: Input DTO không bị thay đổi, giữ nguyên giá trị 0
+      // EXPECTED: implementation tốt không thay đổi object input ban đầu.
       expect(input.OrderInGroup).toBe(0);
     });
   });
@@ -627,9 +724,11 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Xóa thành công.
      */
     it('[TC_39] Xóa câu hỏi thành công', async () => {
+      // MOCK DATA: question thuộc đúng media group và chưa được dùng trong exam.
       qRepo.findById.mockResolvedValueOnce({ ID: 10, MediaQuestionID: 1 } as any);
       qRepo.getUsageStats.mockResolvedValueOnce({ usedInExams: 0 });
       qRepo.delete.mockResolvedValueOnce(true);
+      // ACTION + EXPECTED: xóa question thành công.
       expect(await svc.removeQuestionFromGroup(1, 10)).toBe(true);
     });
 
@@ -639,7 +738,9 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Báo lỗi Not Found.
      */
     it('[TC_40] Báo lỗi khi câu hỏi cần xóa không tồn tại', async () => {
+      // MOCK DATA: repository không tìm thấy question.
       qRepo.findById.mockResolvedValueOnce(null);
+      // EXPECTED: service throw not found.
       await expect(svc.removeQuestionFromGroup(1, 999)).rejects.toThrow('Question not found');
     });
 
@@ -649,7 +750,9 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Báo lỗi chặn hành vi xóa dữ liệu chéo.
      */
     it('[TC_41] Báo lỗi khi cố gắng xóa câu hỏi của nhóm khác', async () => {
+      // MOCK DATA: question tồn tại nhưng thuộc MediaQuestionID=99, không phải group 1.
       qRepo.findById.mockResolvedValueOnce({ ID: 10, MediaQuestionID: 99 } as any);
+      // EXPECTED: service chặn xóa chéo group.
       await expect(svc.removeQuestionFromGroup(1, 10)).rejects.toThrow('Question not found');
     });
 
@@ -659,8 +762,10 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Chặn xóa để không làm hỏng bài thi cũ.
      */
     it('[TC_42] Chặn xóa khi câu hỏi đang nằm trong bài thi thực tế', async () => {
+      // MOCK DATA: question thuộc group 1 nhưng usageStats.usedInExams > 0.
       qRepo.findById.mockResolvedValueOnce({ ID: 10, MediaQuestionID: 1 } as any);
       qRepo.getUsageStats.mockResolvedValueOnce({ usedInExams: 2 });
+      // EXPECTED: service throw và không gọi qRepo.delete.
       await expect(svc.removeQuestionFromGroup(1, 10)).rejects.toThrow('Cannot remove');
       expect(qRepo.delete).not.toHaveBeenCalled();
     });
@@ -671,10 +776,11 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * LỖI THỰC TẾ: Giống hệt lỗi xóa MediaGroup, check `null` bị sai khiến câu hỏi vẫn bị xóa.
      */
     it('[TC_43] LỖI: Bypass bảo vệ và cho phép xóa khi usageStats của câu hỏi bị null', async () => {
+      // MOCK DATA: usageStats=null, tức không xác minh được question có đang được dùng không.
       qRepo.findById.mockResolvedValueOnce({ ID: 10, MediaQuestionID: 1 } as any);
       qRepo.getUsageStats.mockResolvedValueOnce(null); // DB lỗi trả về null
       qRepo.delete.mockResolvedValueOnce(true);
-      // Kỳ vọng: Phải chặn xóa khi không rõ trạng thái (Null/Undefined)
+      // EXPECTED: implementation tốt phải fail-closed và không cho xóa.
       await expect(svc.removeQuestionFromGroup(1, 10)).rejects.toThrow('Cannot verify usage stats');
     });
   });
@@ -690,9 +796,12 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Trả về số lần dùng trong exam và số lượt làm bài (attempts).
      */
     it('[TC_44] Trả về số liệu thống kê sử dụng chính xác', async () => {
+      // MOCK DATA: media tồn tại và usageStats có dữ liệu sử dụng.
       mRepo.findById.mockResolvedValueOnce(createMockMedia());
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ACTIVE);
+      // ACTION: lấy thống kê cho group 1.
       const r = await svc.getMediaGroupStatistics(1);
+      // EXPECTED: response map đúng usedInExams và totalAttempts.
       expect(r.mediaGroupId).toBe(1);
       expect(r.usedInExams).toBe(3);
       expect(r.totalAttempts).toBe(50);
@@ -704,7 +813,9 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Báo lỗi thay vì tính toán sai.
      */
     it('[TC_45] Báo lỗi thống kê nếu nhóm không tồn tại', async () => {
+      // MOCK DATA: media group không tồn tại.
       mRepo.findById.mockResolvedValueOnce(null);
+      // EXPECTED: service throw not found.
       await expect(svc.getMediaGroupStatistics(999)).rejects.toThrow('Media group not found');
     });
   });
@@ -720,11 +831,14 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Clone MediaGroup tạo ra ID mới, sau đó clone toàn bộ Questions trỏ về ID mới này.
      */
     it('[TC_46] Nhân bản thành công cả nhóm và danh sách câu hỏi', async () => {
+      // MOCK DATA: find original thành công, clone media ra ID=99, clone questions thành công, find detail clone thành công.
       mRepo.findById.mockResolvedValueOnce(createMockMedia()).mockResolvedValueOnce(createMockMedia({ ID: 99 }));
       mRepo.clone.mockResolvedValueOnce({ ...createMockMedia(), ID: 99 });
       qRepo.cloneQuestionsToMedia.mockResolvedValueOnce(createMockMedia().questions);
       mRepo.getUsageStats.mockResolvedValueOnce(USAGE_ZERO);
+      // INPUT + ACTION: clone group 1 bởi user 42 với title 'Clone'.
       const r = await svc.cloneMediaGroup(1, 42, 'Clone');
+      // EXPECTED: repository clone đúng source/target/user và response có ID mới.
       expect(mRepo.clone).toHaveBeenCalledWith(1, 'Clone');
       expect(qRepo.cloneQuestionsToMedia).toHaveBeenCalledWith(1, 99, 42);
       expect(r.MediaQuestionID).toBe(99);
@@ -736,7 +850,9 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Chặn thao tác ngay từ đầu.
      */
     it('[TC_47] Báo lỗi khi nhóm gốc dùng để nhân bản không tồn tại', async () => {
+      // MOCK DATA: original media group không tồn tại.
       mRepo.findById.mockResolvedValueOnce(null);
+      // EXPECTED: service throw trước khi gọi clone.
       await expect(svc.cloneMediaGroup(999, 1)).rejects.toThrow('Media group not found');
     });
 
@@ -746,8 +862,10 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Bắt lỗi và dừng quá trình clone Questions.
      */
     it('[TC_48] Dừng quy trình và báo lỗi nếu việc nhân bản Media thất bại', async () => {
+      // MOCK DATA: original tồn tại nhưng mRepo.clone trả null.
       mRepo.findById.mockResolvedValueOnce(createMockMedia());
       mRepo.clone.mockResolvedValueOnce(null);
+      // EXPECTED: service throw và không tiếp tục clone questions.
       await expect(svc.cloneMediaGroup(1, 1)).rejects.toThrow('Failed to clone');
     });
 
@@ -757,9 +875,11 @@ describe('MediaGroupService - Quản lý Ngân hàng Câu hỏi', () => {
      * Kỳ vọng: Service bắt được lỗi và ném ra cho caller (Cần có Transaction thực thụ ở repo để tự động Rollback Media vừa tạo).
      */
     it('[TC_49] Truyền lỗi lên khi việc nhân bản danh sách câu hỏi thất bại', async () => {
+      // MOCK DATA: clone media thành công nhưng clone questions throw lỗi.
       mRepo.findById.mockResolvedValueOnce(createMockMedia());
       mRepo.clone.mockResolvedValueOnce({ ...createMockMedia(), ID: 99 });
       qRepo.cloneQuestionsToMedia.mockRejectedValueOnce(new Error('Clone fail'));
+      // EXPECTED: service truyền lỗi clone questions lên caller.
       await expect(svc.cloneMediaGroup(1, 1)).rejects.toThrow('Clone fail');
     });
   });
