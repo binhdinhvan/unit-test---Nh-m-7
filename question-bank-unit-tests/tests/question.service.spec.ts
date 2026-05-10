@@ -424,11 +424,17 @@ describe('QuestionService', () => {
      * Trường hợp: QuestionIDs null/undefined.
      * Kỳ vọng: Xử lý an toàn và trả kết quả có failed.
      */
-    it('[TC_23] Xử lý lỗi an toàn khi truyền danh sách ID null', async () => {
+    it('[TC_23] LỖI: Crash ứng dụng khi truyền danh sách ID null', async () => {
+      // MOCK DATA: Giả lập Repository ném lỗi khi nhận mảng null/undefined
+      mockRepo.bulkDelete.mockRejectedValue(new Error('Invalid parameters'));
+      
       // INPUT: QuestionIDs undefined.
       const promise = service.performBulkOperation({ Operation: 'DELETE', QuestionIDs: undefined as any }, 1);
-      // EXPECTED: không throw, trả result hợp lệ.
-      await expect(promise).resolves.toEqual(expect.objectContaining({ failed: expect.any(Number) }));
+      
+      // EXPECTED: Hệ thống phải bắt lỗi an toàn (Fail-safe) và trả về object lỗi, chứ không được văng Exception làm crash server
+      await expect(promise).resolves.toEqual(
+        expect.objectContaining({ failed: expect.any(Number) })
+      );
     });
   });
 
